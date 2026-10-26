@@ -87,4 +87,3 @@ After the script runs, check `src/pesa_pulse_data_analysis/output/` for the CSV 
 - The `email_domain` field contains the part after the final dot in an email address. For example, `Sincere@april.biz` gives `biz`.
 - The city chart summarizes only the records returned by the sample API. Since every city appears once, it does not identify a city with a higher customer concentration.
 - Campaign planning should use the partner’s full, current customer directory.
-```
