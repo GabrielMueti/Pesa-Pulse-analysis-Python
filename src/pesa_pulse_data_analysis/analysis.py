@@ -16,7 +16,7 @@ def get_customers(url: str = API_URL) -> list[dict]:
         return response.json()
     except requests.exceptions.RequestException as error:
         print(f"Could nt fetch data:{error}")
-        return None
+        return []
 
 def explore(record: dict, indent: int = 0) -> None:
     """Print every key in a (possibly nested) record with its type, indented by depth."""
@@ -42,7 +42,7 @@ def extract_attributes(customers: list[dict]) -> list[dict]:
         email_domain = email.rsplit(".", 1)[-1]
 
         row = {
-            "id": customer["id"],
+            "customer_id": customer["id"],
             "name": customer["name"],
             "username": customer["username"],
             "email": email,
@@ -90,15 +90,20 @@ def to_dataframe(rows: list[dict]) -> pd.DataFrame:
     """Covert the data into a dataframe"""
     return pd.DataFrame(rows)
 
-def plot_distribution(counts: dict[str, int], path: Path) -> None:
-    """Save a labelled chart of the distribution to path."""
-    cities = list(counts.keys())
-    customer_totals = list(counts.values())
+def plot_distribution(
+    counts: dict[str, int],
+    path: Path,
+    title: str,
+    x_label: str,
+) -> None:
+    """Save a labelled chart of a distribution to path."""
+    labels = list(counts.keys())
+    values = list(counts.values())
 
     plt.figure(figsize=(10, 6))
-    plt.bar(cities, customer_totals, color="steelblue")
-    plt.title("Customers by City")
-    plt.xlabel("City")
+    plt.bar(labels, values, color="steelblue")
+    plt.title(title)
+    plt.xlabel(x_label)
     plt.ylabel("Number of Customers")
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
@@ -106,89 +111,100 @@ def plot_distribution(counts: dict[str, int], path: Path) -> None:
     plt.close()
 
 
-if __name__ == "__main__":
-    # TODO: run each step and print a short findings summary
+def main() -> None:
     customers = get_customers()
 
-    ##Confirm customers are fetched
-    if customers is not None:
-        print(f"Retrieved {len(customers)} customers")
-        print(customers[0])
+    # One check handles a failed request or an empty response.
+    if not customers:
+        print("No customer data available. Stopping analysis.")
+        return
 
+    print(f"Retrieved {len(customers)} customers")
 
-    ##Explore nested dictionaries and lists
-    if customers:
-        print("\nStructure of the first customer:")
-        explore(customers[0])
+    print("\nStructure of the first customer:")
+    explore(customers[0])
 
+    # Prepare the cleaned records and summaries once.
+    rows = extract_attributes(customers)
+    df = to_dataframe(rows)
+    city_count_data = city_counts(customers)
+    domain_count_data = email_domain_counts(customers)
 
-    ##Extract customer attributes
-    if customers:
-        rows = extract_attributes(customers)
-        print("\nFirst flattened customer:")
-        print(rows[1])
+    print("\nFirst flattened customer:")
+    print(rows[0])
 
-    ##Find unique cities using sets
-    if customers:
-        cities = unique_cities(customers)
-        print(f"\nUnique cities: {len(cities)}")
-        print(f"Customers: {len(customers)}")
+    cities = unique_cities(customers)
+    print(f"\nUnique cities: {len(cities)}")
+    print(f"Customers: {len(customers)}")
+
+    if len(cities) == len(customers):
         print(
-            "Marketing takeaway: "
-            "There are as many unique cities as customers, so each customer in this sample is in a different city. "
-
-            if len(cities) == len(customers)
-            else "Some customers share a city, so campaigns can target at least one location with multiple customers. "
+            "Marketing takeaway: Each customer in this sample is in a "
+            "different city."
         )
-    ##Count customers by city
+    else:
+        print(
+            "Marketing takeaway: Some customers in this sample share a city."
+        )
+
+    # Sort by customer count (highest first), then city name alphabetically.
+    sorted_city_counts = sorted(
+        city_count_data.items(),
+        key=lambda item: (-item[1], item[0]),
+    )
+
     print("\nCustomers by city:")
-    for city, count in sorted(city_counts(customers).items(),
-                              key=lambda item: item[1], reverse=True):
+    for city, count in sorted_city_counts:
         print(f"{city}: {count}")
 
-    ##Count customers by email domain
     print("\nCustomers by email domain:")
-    for domain, count in sorted(email_domain_counts(customers).items(),
-                                key=lambda item: item[1], reverse=True):
+    for domain, count in sorted(
+        domain_count_data.items(),
+        key=lambda item: (-item[1], item[0]),
+    ):
         print(f"{domain}: {count}")
 
+    print("\nDataFrame shape:", df.shape)
+    print("\nColumn data types:")
+    print(df.dtypes)
 
-    if customers:
-       df = to_dataframe(rows)
-
-       ##Dataframe details
-       print("\nDataFrame shape:", df.shape)
-       print("\nColumn data types:")
-       print(df.dtypes)
-       print("\nPandas customer counts by city:")
-       print(df["city"].value_counts().sort_values(ascending=False))
-
-
-    ##Export dataframe as CSV and save to path
-    if customers:
-        rows = extract_attributes(customers)
-        df = to_dataframe(rows)
-
-        output_dir = Path(__file__).parent / "output"
-        output_dir.mkdir(exist_ok=True)
-
-        df.to_csv(output_dir / "customers.csv", index=False)
-
-        city_df = (
-            df["city"]
-            .value_counts()
-            .rename_axis("city")
-            .reset_index(name="customer_count")
-        )
-        city_df.to_csv(output_dir / "city_counts.csv", index=False)
-
-        print(f"\nSaved customer and city CSV files to: {output_dir}")
-
-
-    ##Visulaize the customer distribution and save to output folder
-    city_counts_data = city_counts(customers)
-    output_dir = Path(__file__).parent / "output"
-    plot_distribution(
-        city_counts_data,
-        output_dir / "customer_distribution.png",
+    pandas_city_counts = df["city"].value_counts().to_dict()
+    print("\nPandas city counts:")
+    print(df["city"].value_counts().sort_values(ascending=False))
+    print(
+        "Pandas counts match the Python counts:",
+        pandas_city_counts == city_count_data,
     )
+
+    # The script is under src/pesa_pulse_data_analysis/,
+    # so parents[2] points to the project root.
+    output_dir = Path(__file__).resolve().parents[2] / "output"
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    df.to_csv(output_dir / "customers.csv", index=False)
+
+    city_df = pd.DataFrame(
+        sorted_city_counts,
+        columns=["city", "customer_count"],
+    )
+    city_df.to_csv(output_dir / "city_counts.csv", index=False)
+
+    plot_distribution(
+        city_count_data,
+        output_dir / "customer_distribution.png",
+        title="Customers by City",
+        x_label="City",
+    )
+
+    plot_distribution(
+        domain_count_data,
+        output_dir / "email_domain_distribution.png",
+        title="Customers by Email Top-Level Domain",
+        x_label="Email Top-Level Domain",
+    )
+
+    print(f"\nSaved CSV files and charts to: {output_dir}")
+
+
+if __name__ == "__main__":
+    main()
